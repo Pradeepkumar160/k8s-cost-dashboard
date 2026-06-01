@@ -1,0 +1,1813 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>K8s Cost Optimization Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:opsz,wght@9..40,300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0e1a;
+    --surface: #111827;
+    --surface2: #1a2235;
+    --border: #1f2d45;
+    --accent: #00d4ff;
+    --accent2: #7c3aed;
+    --accent3: #10b981;
+    --danger: #ef4444;
+    --warning: #f59e0b;
+    --text: #e2e8f0;
+    --text-muted: #64748b;
+    --text-dim: #94a3b8;
+    --font-mono: 'Space Mono', monospace;
+    --font-sans: 'DM Sans', sans-serif;
+    --glow: 0 0 20px rgba(0, 212, 255, 0.15);
+    --glow-green: 0 0 20px rgba(16, 185, 129, 0.15);
+    --radius: 12px;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: var(--font-sans);
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    background-image:
+      radial-gradient(ellipse at 20% 0%, rgba(124,58,237,0.12) 0%, transparent 60%),
+      radial-gradient(ellipse at 80% 100%, rgba(0,212,255,0.08) 0%, transparent 60%);
+  }
+
+  /* ── SCROLLBAR ── */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  /* ── LAYOUT ── */
+  .app-shell { display: flex; min-height: 100vh; }
+
+  .sidebar {
+    width: 240px;
+    flex-shrink: 0;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+  }
+
+  .sidebar-logo {
+    padding: 28px 24px 20px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .sidebar-logo .brand {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--accent);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .sidebar-logo .tagline {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 4px;
+  }
+
+  .sidebar-nav { padding: 16px 12px; flex: 1; }
+
+  .nav-label {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--text-muted);
+    padding: 0 12px;
+    margin: 16px 0 8px;
+  }
+
+  .nav-btn {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 10px 12px;
+    border: none;
+    background: none;
+    color: var(--text-dim);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    border-radius: 8px;
+    transition: all 0.15s ease;
+    text-align: left;
+    margin-bottom: 2px;
+  }
+
+  .nav-btn .icon { font-size: 16px; width: 20px; text-align: center; }
+
+  .nav-btn:hover { background: var(--surface2); color: var(--text); }
+
+  .nav-btn.active {
+    background: rgba(0, 212, 255, 0.1);
+    color: var(--accent);
+    border: 1px solid rgba(0, 212, 255, 0.2);
+  }
+
+  .sidebar-footer {
+    padding: 16px;
+    border-top: 1px solid var(--border);
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+
+  .live-indicator {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 4px;
+  }
+
+  .live-dot {
+    width: 7px; height: 7px;
+    background: var(--accent3);
+    border-radius: 50%;
+    animation: pulse 2s infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.6; transform: scale(1.3); }
+  }
+
+  /* ── MAIN CONTENT ── */
+  .main-content { flex: 1; overflow-x: hidden; }
+
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 32px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(17, 24, 39, 0.8);
+    backdrop-filter: blur(8px);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+
+  .topbar-title { font-size: 18px; font-weight: 600; }
+  .topbar-sub { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+
+  .topbar-actions { display: flex; gap: 10px; align-items: center; }
+
+  .tab-content { display: none; padding: 28px 32px; animation: fadeIn 0.2s ease; }
+  .tab-content.active { display: block; }
+
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+  /* ── CARDS ── */
+  .section-title {
+    font-size: 13px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-muted);
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .section-title::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  .metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 16px;
+    margin-bottom: 28px;
+  }
+
+  .metric-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 22px;
+    position: relative;
+    overflow: hidden;
+    transition: transform 0.2s, box-shadow 0.2s;
+  }
+
+  .metric-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: var(--accent);
+  }
+
+  .metric-card.green::before { background: var(--accent3); }
+  .metric-card.orange::before { background: var(--warning); }
+  .metric-card.red::before { background: var(--danger); }
+  .metric-card.purple::before { background: var(--accent2); }
+
+  .metric-card:hover { transform: translateY(-2px); box-shadow: var(--glow); }
+
+  .metric-label {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-muted);
+    margin-bottom: 10px;
+  }
+
+  .metric-value {
+    font-family: var(--font-mono);
+    font-size: 30px;
+    font-weight: 700;
+    color: var(--accent);
+    line-height: 1;
+    margin-bottom: 6px;
+  }
+
+  .metric-card.green .metric-value { color: var(--accent3); }
+  .metric-card.orange .metric-value { color: var(--warning); }
+  .metric-card.red .metric-value { color: var(--danger); }
+  .metric-card.purple .metric-value { color: var(--accent2); }
+
+  .metric-change { font-size: 12px; color: var(--text-muted); }
+  .metric-change.up { color: var(--danger); }
+  .metric-change.down { color: var(--accent3); }
+
+  /* ── CHARTS ── */
+  .charts-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(440px, 1fr));
+    gap: 16px;
+    margin-bottom: 28px;
+  }
+
+  .chart-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 22px;
+  }
+
+  .chart-title {
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 18px;
+    color: var(--text);
+  }
+
+  .chart-wrapper { position: relative; height: 260px; }
+
+  /* ── TABLES ── */
+  .table-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    margin-bottom: 28px;
+  }
+
+  .table-header {
+    padding: 18px 22px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .table-header h3 { font-size: 14px; font-weight: 600; }
+
+  .table-wrapper { overflow-x: auto; }
+
+  table { width: 100%; border-collapse: collapse; }
+
+  thead th {
+    padding: 12px 18px;
+    text-align: left;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
+    background: rgba(31, 45, 69, 0.5);
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+
+  tbody td {
+    padding: 14px 18px;
+    font-size: 13px;
+    color: var(--text-dim);
+    border-bottom: 1px solid rgba(31, 45, 69, 0.6);
+    white-space: nowrap;
+  }
+
+  tbody tr:hover { background: rgba(0, 212, 255, 0.03); }
+  tbody tr:last-child td { border-bottom: none; }
+  td strong { color: var(--text); font-weight: 600; }
+
+  /* ── BADGES ── */
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+  }
+
+  .badge-red { background: rgba(239,68,68,0.12); color: #ef4444; border: 1px solid rgba(239,68,68,0.3); }
+  .badge-orange { background: rgba(245,158,11,0.12); color: #f59e0b; border: 1px solid rgba(245,158,11,0.3); }
+  .badge-green { background: rgba(16,185,129,0.12); color: #10b981; border: 1px solid rgba(16,185,129,0.3); }
+  .badge-blue { background: rgba(0,212,255,0.12); color: #00d4ff; border: 1px solid rgba(0,212,255,0.3); }
+  .badge-purple { background: rgba(124,58,237,0.12); color: #a78bfa; border: 1px solid rgba(124,58,237,0.3); }
+
+  /* ── BUTTONS ── */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 9px 18px;
+    border: none;
+    border-radius: 8px;
+    font-family: var(--font-sans);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+  }
+
+  .btn-primary {
+    background: var(--accent);
+    color: #0a0e1a;
+  }
+  .btn-primary:hover { filter: brightness(1.1); transform: translateY(-1px); }
+
+  .btn-secondary {
+    background: var(--surface2);
+    color: var(--text-dim);
+    border: 1px solid var(--border);
+  }
+  .btn-secondary:hover { background: var(--border); color: var(--text); }
+
+  .btn-danger {
+    background: rgba(239,68,68,0.12);
+    color: var(--danger);
+    border: 1px solid rgba(239,68,68,0.3);
+  }
+  .btn-danger:hover { background: rgba(239,68,68,0.2); }
+
+  .btn-green {
+    background: rgba(16,185,129,0.12);
+    color: var(--accent3);
+    border: 1px solid rgba(16,185,129,0.3);
+  }
+  .btn-green:hover { background: rgba(16,185,129,0.2); }
+
+  .btn-sm { padding: 6px 12px; font-size: 12px; }
+
+  /* ── FILTER BAR ── */
+  .filter-bar {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    align-items: center;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px 20px;
+    margin-bottom: 20px;
+  }
+
+  .filter-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .filter-group label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  select, input[type="text"] {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-family: var(--font-sans);
+    font-size: 13px;
+    padding: 7px 12px;
+    outline: none;
+    transition: border-color 0.15s;
+    cursor: pointer;
+  }
+
+  select:focus, input[type="text"]:focus { border-color: var(--accent); }
+  select option { background: var(--surface2); }
+
+  /* ── ALERT BANNERS ── */
+  .alert {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 14px 18px;
+    border-radius: var(--radius);
+    margin-bottom: 20px;
+    font-size: 13px;
+    line-height: 1.6;
+    border: 1px solid;
+  }
+
+  .alert-icon { font-size: 16px; flex-shrink: 0; margin-top: 1px; }
+  .alert-info { background: rgba(0,212,255,0.06); border-color: rgba(0,212,255,0.25); color: #7dd3fc; }
+  .alert-success { background: rgba(16,185,129,0.06); border-color: rgba(16,185,129,0.25); color: #6ee7b7; }
+  .alert-warning { background: rgba(245,158,11,0.06); border-color: rgba(245,158,11,0.25); color: #fcd34d; }
+  .alert strong { font-weight: 700; }
+
+  /* ── RECOMMENDATIONS ── */
+  .rec-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+    margin-bottom: 12px;
+    border-left: 3px solid var(--accent);
+    transition: all 0.2s;
+  }
+
+  .rec-card.high { border-left-color: var(--danger); }
+  .rec-card.medium { border-left-color: var(--warning); }
+  .rec-card.low { border-left-color: var(--accent3); }
+  .rec-card.applied { opacity: 0.5; border-left-color: var(--accent3); }
+  .rec-card.dismissed { display: none; }
+
+  .rec-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+  .rec-title { font-size: 14px; font-weight: 600; color: var(--text); }
+  .rec-body { font-size: 13px; color: var(--text-dim); line-height: 1.7; }
+  .rec-body p { margin-bottom: 4px; }
+  .rec-savings { color: var(--accent3); font-weight: 700; font-size: 15px; margin: 8px 0; }
+  .rec-actions { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+
+  /* ── PROGRESS BARS ── */
+  .progress-row { margin-bottom: 16px; }
+  .progress-label { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+  .progress-label span:first-child { font-size: 13px; font-weight: 500; color: var(--text-dim); }
+  .progress-label span:last-child { font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); }
+  .progress-track { height: 6px; background: var(--surface2); border-radius: 3px; overflow: hidden; }
+  .progress-fill { height: 100%; border-radius: 3px; transition: width 0.8s ease; }
+  .pf-blue { background: linear-gradient(90deg, var(--accent), var(--accent2)); }
+  .pf-green { background: var(--accent3); }
+  .pf-orange { background: var(--warning); }
+  .pf-red { background: var(--danger); }
+
+  /* ── STATS ROW ── */
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+    margin-bottom: 28px;
+  }
+
+  .stat-box {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 18px;
+    text-align: center;
+  }
+
+  .stat-num { font-family: var(--font-mono); font-size: 26px; font-weight: 700; color: var(--accent); margin-bottom: 4px; }
+  .stat-lbl { font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-muted); }
+
+  /* ── MODAL ── */
+  .modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+    backdrop-filter: blur(4px);
+    z-index: 1000;
+    align-items: center;
+    justify-content: center;
+  }
+  .modal-overlay.open { display: flex; }
+
+  .modal-box {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 28px;
+    width: 90%;
+    max-width: 480px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+    animation: modalIn 0.2s ease;
+  }
+
+  @keyframes modalIn { from { transform: scale(0.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+  .modal-title { font-size: 18px; font-weight: 700; margin-bottom: 14px; color: var(--text); }
+  .modal-body { font-size: 14px; color: var(--text-dim); line-height: 1.7; margin-bottom: 20px; }
+  .modal-footer { display: flex; gap: 10px; justify-content: flex-end; }
+
+  /* ── TOAST ── */
+  #toast-container {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .toast {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 18px;
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 500;
+    min-width: 280px;
+    max-width: 360px;
+    animation: toastIn 0.3s ease, toastOut 0.3s ease 3.7s forwards;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  }
+
+  @keyframes toastIn { from { transform: translateX(40px); opacity: 0; } to { transform: none; opacity: 1; } }
+  @keyframes toastOut { to { transform: translateX(40px); opacity: 0; } }
+
+  .toast-success { background: rgba(16,185,129,0.15); border: 1px solid rgba(16,185,129,0.4); color: #6ee7b7; }
+  .toast-error { background: rgba(239,68,68,0.15); border: 1px solid rgba(239,68,68,0.4); color: #fca5a5; }
+  .toast-info { background: rgba(0,212,255,0.12); border: 1px solid rgba(0,212,255,0.3); color: #7dd3fc; }
+
+  /* ── OVERVIEW HERO ── */
+  .hero-banner {
+    background: linear-gradient(135deg, rgba(0,212,255,0.08), rgba(124,58,237,0.08));
+    border: 1px solid rgba(0,212,255,0.2);
+    border-radius: var(--radius);
+    padding: 20px 24px;
+    margin-bottom: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+
+  .hero-text h2 { font-size: 20px; font-weight: 700; margin-bottom: 4px; }
+  .hero-text p { font-size: 13px; color: var(--text-dim); }
+
+  .hero-numbers { display: flex; gap: 24px; }
+  .hero-num { text-align: center; }
+  .hero-num .n { font-family: var(--font-mono); font-size: 24px; font-weight: 700; color: var(--accent3); }
+  .hero-num .l { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; margin-top: 2px; }
+
+  /* ── NAMESPACE CHART SECTION ── */
+  .ns-utilization {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .util-bar {
+    flex: 1;
+    height: 4px;
+    background: var(--surface2);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+
+  .util-fill { height: 100%; border-radius: 2px; }
+
+  /* ── REPORT CARDS ── */
+  .report-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 18px 20px;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+
+  .report-info { flex: 1; }
+  .report-name { font-size: 14px; font-weight: 600; color: var(--text); margin-bottom: 4px; }
+  .report-meta { font-size: 12px; color: var(--text-muted); }
+  .report-stats { display: flex; gap: 24px; }
+  .report-stat { text-align: right; }
+  .report-stat .val { font-family: var(--font-mono); font-size: 15px; font-weight: 700; color: var(--accent); }
+  .report-stat .lbl { font-size: 11px; color: var(--text-muted); text-transform: uppercase; }
+
+  /* ── PODS STATUS INDICATOR ── */
+  .status-dot {
+    display: inline-block;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    margin-right: 6px;
+  }
+  .status-running { background: var(--accent3); box-shadow: 0 0 6px var(--accent3); }
+  .status-idle { background: var(--warning); }
+  .status-pending { background: var(--text-muted); }
+
+  /* ── RESPONSIVE ── */
+  @media (max-width: 900px) {
+    .app-shell { flex-direction: column; }
+    .sidebar { width: 100%; height: auto; position: relative; }
+    .sidebar-nav { display: flex; flex-wrap: wrap; gap: 4px; padding: 12px; }
+    .nav-label { display: none; }
+    .nav-btn { flex: 0 1 auto; padding: 8px 14px; }
+    .tab-content { padding: 20px 16px; }
+    .charts-grid { grid-template-columns: 1fr; }
+    .topbar { padding: 12px 16px; }
+    .hero-numbers { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="app-shell">
+
+  <!-- ════ SIDEBAR ════ -->
+  <aside class="sidebar">
+    <div class="sidebar-logo">
+      <div class="brand">⎈ K8s FinOps</div>
+      <div class="tagline">Cost Optimization Platform</div>
+    </div>
+
+    <nav class="sidebar-nav">
+      <div class="nav-label">Dashboard</div>
+      <button class="nav-btn active" onclick="switchTab('overview', this)">
+        <span class="icon">📊</span> Overview
+      </button>
+      <button class="nav-btn" onclick="switchTab('analysis', this)">
+        <span class="icon">🔍</span> Cost Analysis
+      </button>
+      <button class="nav-btn" onclick="switchTab('recommendations', this)">
+        <span class="icon">🎯</span> Recommendations
+        <span id="rec-count-badge" style="margin-left:auto;background:var(--danger);color:white;border-radius:10px;padding:1px 7px;font-size:11px;font-weight:700;">6</span>
+      </button>
+
+      <div class="nav-label">Resources</div>
+      <button class="nav-btn" onclick="switchTab('namespaces', this)">
+        <span class="icon">🗂️</span> Namespaces
+      </button>
+      <button class="nav-btn" onclick="switchTab('pods', this)">
+        <span class="icon">🫙</span> Pod Details
+      </button>
+
+      <div class="nav-label">Reporting</div>
+      <button class="nav-btn" onclick="switchTab('reports', this)">
+        <span class="icon">📑</span> Reports
+      </button>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="live-indicator">
+        <div class="live-dot"></div>
+        <span>Live data — 3 clusters</span>
+      </div>
+      <div>Updated: <span id="lastUpdate">—</span></div>
+    </div>
+  </aside>
+
+  <!-- ════ MAIN ════ -->
+  <main class="main-content">
+
+    <!-- TOPBAR -->
+    <div class="topbar">
+      <div>
+        <div class="topbar-title" id="topbar-title">Overview</div>
+        <div class="topbar-sub" id="topbar-sub">FinOps intelligence across all clusters</div>
+      </div>
+      <div class="topbar-actions">
+        <button class="btn btn-secondary" onclick="refreshData()">↻ Refresh</button>
+        <button class="btn btn-primary" onclick="exportData()">⬇ Export</button>
+      </div>
+    </div>
+
+    <!-- ═══ OVERVIEW TAB ═══ -->
+    <div id="overview" class="tab-content active">
+
+      <div class="hero-banner">
+        <div class="hero-text">
+          <h2>🚀 Welcome to K8s Cost Dashboard</h2>
+          <p>Real-time FinOps insights for Kubernetes resource management & cost optimization. Data refreshes every 5 minutes.</p>
+        </div>
+        <div class="hero-numbers">
+          <div class="hero-num">
+            <div class="n" id="hero-savings">$8,320</div>
+            <div class="l">Potential Savings/mo</div>
+          </div>
+          <div class="hero-num">
+            <div class="n">$42K</div>
+            <div class="l">Annual Opportunity</div>
+          </div>
+          <div class="hero-num">
+            <div class="n" id="hero-score">45</div>
+            <div class="l">Optimization Score</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="metrics-grid">
+        <div class="metric-card red">
+          <div class="metric-label">Monthly Waste</div>
+          <div class="metric-value" id="m-waste">$12,450</div>
+          <div class="metric-change up">↑ 8.5% from last month</div>
+        </div>
+        <div class="metric-card green">
+          <div class="metric-label">Potential Savings</div>
+          <div class="metric-value" id="m-savings">$8,320</div>
+          <div class="metric-change">66.8% of current waste</div>
+        </div>
+        <div class="metric-card orange">
+          <div class="metric-label">Active Recommendations</div>
+          <div class="metric-value" id="m-recs">6</div>
+          <div class="metric-change">3 high priority</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Total Monthly Spend</div>
+          <div class="metric-value">$18,650</div>
+          <div class="metric-change">Across 3 clusters</div>
+        </div>
+      </div>
+
+      <div class="charts-grid">
+        <div class="chart-card">
+          <div class="chart-title">Monthly Cost vs Waste Trend</div>
+          <div class="chart-wrapper"><canvas id="costTrendChart"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-title">Overall Resource Utilization</div>
+          <div class="chart-wrapper"><canvas id="utilizationChart"></canvas></div>
+        </div>
+      </div>
+
+      <div class="charts-grid">
+        <div class="chart-card">
+          <div class="chart-title">Cost Breakdown by Resource Type</div>
+          <div class="chart-wrapper"><canvas id="costBreakdownChart"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-title">Waste by Namespace</div>
+          <div class="chart-wrapper"><canvas id="wasteDistributionChart"></canvas></div>
+        </div>
+      </div>
+
+      <div class="section-title">Resource Efficiency Scores</div>
+      <div class="stats-grid">
+        <div class="stat-box">
+          <div class="stat-num" style="color:var(--danger)">42%</div>
+          <div class="stat-lbl">CPU Efficiency</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-num" style="color:var(--warning)">35%</div>
+          <div class="stat-lbl">Memory Efficiency</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-num" style="color:var(--accent)">58%</div>
+          <div class="stat-lbl">Storage Efficiency</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-num" style="color:var(--accent2)">45/100</div>
+          <div class="stat-lbl">Optimization Score</div>
+        </div>
+      </div>
+
+      <div class="section-title">Cluster Health Overview</div>
+      <div class="chart-card" style="margin-bottom:0">
+        <div class="progress-row">
+          <div class="progress-label"><span>CPU Utilization (prod cluster)</span><span>28%</span></div>
+          <div class="progress-track"><div class="progress-fill pf-red" style="width:28%"></div></div>
+        </div>
+        <div class="progress-row">
+          <div class="progress-label"><span>Memory Utilization (prod cluster)</span><span>36%</span></div>
+          <div class="progress-track"><div class="progress-fill pf-orange" style="width:36%"></div></div>
+        </div>
+        <div class="progress-row">
+          <div class="progress-label"><span>CPU Utilization (staging cluster)</span><span>55%</span></div>
+          <div class="progress-track"><div class="progress-fill pf-blue" style="width:55%"></div></div>
+        </div>
+        <div class="progress-row">
+          <div class="progress-label"><span>Memory Utilization (staging cluster)</span><span>62%</span></div>
+          <div class="progress-track"><div class="progress-fill pf-green" style="width:62%"></div></div>
+        </div>
+        <div class="progress-row" style="margin-bottom:0">
+          <div class="progress-label"><span>CPU Utilization (dev cluster)</span><span>78%</span></div>
+          <div class="progress-track"><div class="progress-fill pf-green" style="width:78%"></div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ COST ANALYSIS TAB ═══ -->
+    <div id="analysis" class="tab-content">
+
+      <div class="filter-bar">
+        <div class="filter-group">
+          <label>Cluster</label>
+          <select id="clusterFilter" onchange="updateAnalysis()">
+            <option value="all">All Clusters</option>
+            <option value="prod">Production</option>
+            <option value="staging">Staging</option>
+            <option value="dev">Development</option>
+          </select>
+        </div>
+        <div class="filter-group">
+          <label>Period</label>
+          <select id="timeFilter" onchange="updateAnalysis()">
+            <option value="7d">Last 7 Days</option>
+            <option value="30d">Last 30 Days</option>
+            <option value="90d">Last 90 Days</option>
+          </select>
+        </div>
+        <div style="margin-left:auto;">
+          <button class="btn btn-primary" onclick="exportAnalysis()">📥 Export CSV</button>
+        </div>
+      </div>
+
+      <div class="metrics-grid">
+        <div class="metric-card">
+          <div class="metric-label">CPU Waste</div>
+          <div class="metric-value" id="a-cpu-waste">5,240m</div>
+          <div class="metric-change">$3,850/month</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Memory Waste</div>
+          <div class="metric-value" id="a-mem-waste">128 GB</div>
+          <div class="metric-change">$2,560/month</div>
+        </div>
+        <div class="metric-card orange">
+          <div class="metric-label">Idle Pods</div>
+          <div class="metric-value" id="a-idle">234</div>
+          <div class="metric-change">Consuming $1,200/month</div>
+        </div>
+        <div class="metric-card red">
+          <div class="metric-label">Over-provisioned</div>
+          <div class="metric-value" id="a-overprov">67%</div>
+          <div class="metric-change">Of total resources</div>
+        </div>
+      </div>
+
+      <div class="charts-grid">
+        <div class="chart-card">
+          <div class="chart-title" id="analysis-chart1-title">Cost by Namespace</div>
+          <div class="chart-wrapper"><canvas id="costByNamespaceChart"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-title">CPU vs Memory Cost Split</div>
+          <div class="chart-wrapper"><canvas id="cpuVsMemoryChart"></canvas></div>
+        </div>
+      </div>
+
+      <div class="table-card">
+        <div class="table-header">
+          <h3>Top Expensive Namespaces</h3>
+          <span id="analysis-filter-label" class="badge badge-blue">All Clusters · 30 Days</span>
+        </div>
+        <div class="table-wrapper">
+          <table id="analysisTable">
+            <thead>
+              <tr>
+                <th>Namespace</th>
+                <th>Monthly Cost</th>
+                <th>CPU Usage</th>
+                <th>Memory Usage</th>
+                <th>Efficiency</th>
+                <th>Monthly Waste</th>
+              </tr>
+            </thead>
+            <tbody id="analysisTableBody">
+              <!-- filled by JS -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ RECOMMENDATIONS TAB ═══ -->
+    <div id="recommendations" class="tab-content">
+
+      <div class="filter-bar">
+        <div class="filter-group">
+          <label>Priority</label>
+          <select id="priorityFilter" onchange="filterRecommendations()">
+            <option value="all">All Priorities</option>
+            <option value="high">High</option>
+            <option value="medium">Medium</option>
+            <option value="low">Low</option>
+          </select>
+        </div>
+        <div class="filter-group">
+          <label>Type</label>
+          <select id="typeFilter" onchange="filterRecommendations()">
+            <option value="all">All Types</option>
+            <option value="rightsizing">Rightsizing</option>
+            <option value="idle">Idle Resources</option>
+            <option value="consolidation">Consolidation</option>
+            <option value="hpa">HPA / Scaling</option>
+            <option value="reserved">Reserved Instances</option>
+          </select>
+        </div>
+        <div style="margin-left:auto;">
+          <button class="btn btn-primary" onclick="applyAllRecommendations()">✓ Apply All Pending</button>
+        </div>
+      </div>
+
+      <div class="alert alert-success">
+        <span class="alert-icon">💰</span>
+        <div><strong>Potential Annual Savings: $99,840</strong> — Implementing all recommendations reduces wasted spend by 66.8%.</div>
+      </div>
+
+      <div id="recContainer">
+        <!-- Dynamically rendered -->
+      </div>
+
+      <div id="recEmpty" style="display:none;" class="chart-card" style="text-align:center;padding:40px;">
+        <div style="text-align:center;padding:40px;color:var(--text-muted);">
+          <div style="font-size:48px;margin-bottom:12px;">🎉</div>
+          <div style="font-size:16px;font-weight:600;margin-bottom:6px;color:var(--text);">All recommendations handled!</div>
+          <div style="font-size:13px;">No recommendations match the current filter.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ NAMESPACES TAB ═══ -->
+    <div id="namespaces" class="tab-content">
+
+      <div class="charts-grid">
+        <div class="chart-card">
+          <div class="chart-title">Namespace Cost Distribution</div>
+          <div class="chart-wrapper"><canvas id="namespaceCostChart"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-title">CPU Requested vs Actual Usage</div>
+          <div class="chart-wrapper"><canvas id="requestVsUsageChart"></canvas></div>
+        </div>
+      </div>
+
+      <div class="table-card">
+        <div class="table-header">
+          <h3>Namespace Resource Analysis</h3>
+          <span class="badge badge-blue">5 namespaces</span>
+        </div>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Namespace</th>
+                <th>Pods</th>
+                <th>CPU Req → Used</th>
+                <th>Mem Req → Used</th>
+                <th>Utilization</th>
+                <th>Monthly Cost</th>
+                <th>Waste</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>production</strong></td>
+                <td>45</td>
+                <td>64 → 18 cores</td>
+                <td>256 → 92 GB</td>
+                <td>
+                  <div class="ns-utilization">
+                    <div class="util-bar"><div class="util-fill pf-red" style="width:28%"></div></div>
+                    <span style="font-size:12px;color:var(--danger);font-family:var(--font-mono)">28%</span>
+                  </div>
+                </td>
+                <td><span style="color:var(--accent);font-family:var(--font-mono)">$8,450</span></td>
+                <td><span style="color:var(--danger);font-family:var(--font-mono)">$3,210</span></td>
+                <td><span class="badge badge-red">Critical</span></td>
+              </tr>
+              <tr>
+                <td><strong>payments</strong></td>
+                <td>28</td>
+                <td>40 → 16 cores</td>
+                <td>160 → 68 GB</td>
+                <td>
+                  <div class="ns-utilization">
+                    <div class="util-bar"><div class="util-fill pf-orange" style="width:40%"></div></div>
+                    <span style="font-size:12px;color:var(--warning);font-family:var(--font-mono)">40%</span>
+                  </div>
+                </td>
+                <td><span style="color:var(--accent);font-family:var(--font-mono)">$5,320</span></td>
+                <td><span style="color:var(--warning);font-family:var(--font-mono)">$2,235</span></td>
+                <td><span class="badge badge-orange">Warning</span></td>
+              </tr>
+              <tr>
+                <td><strong>analytics</strong></td>
+                <td>18</td>
+                <td>32 → 18 cores</td>
+                <td>128 → 72 GB</td>
+                <td>
+                  <div class="ns-utilization">
+                    <div class="util-bar"><div class="util-fill pf-blue" style="width:56%"></div></div>
+                    <span style="font-size:12px;color:var(--accent);font-family:var(--font-mono)">56%</span>
+                  </div>
+                </td>
+                <td><span style="color:var(--accent);font-family:var(--font-mono)">$3,120</span></td>
+                <td><span style="color:var(--accent);font-family:var(--font-mono)">$1,404</span></td>
+                <td><span class="badge badge-blue">Good</span></td>
+              </tr>
+              <tr>
+                <td><strong>monitoring</strong></td>
+                <td>12</td>
+                <td>16 → 8 cores</td>
+                <td>64 → 18 GB</td>
+                <td>
+                  <div class="ns-utilization">
+                    <div class="util-bar"><div class="util-fill pf-green" style="width:50%"></div></div>
+                    <span style="font-size:12px;color:var(--accent3);font-family:var(--font-mono)">50%</span>
+                  </div>
+                </td>
+                <td><span style="color:var(--accent);font-family:var(--font-mono)">$1,760</span></td>
+                <td><span style="color:var(--accent3);font-family:var(--font-mono)">$843</span></td>
+                <td><span class="badge badge-green">Good</span></td>
+              </tr>
+              <tr>
+                <td><strong>kube-system</strong></td>
+                <td>8</td>
+                <td>8 → 6 cores</td>
+                <td>32 → 12 GB</td>
+                <td>
+                  <div class="ns-utilization">
+                    <div class="util-bar"><div class="util-fill pf-green" style="width:75%"></div></div>
+                    <span style="font-size:12px;color:var(--accent3);font-family:var(--font-mono)">75%</span>
+                  </div>
+                </td>
+                <td><span style="color:var(--accent);font-family:var(--font-mono)">$640</span></td>
+                <td><span style="color:var(--accent3);font-family:var(--font-mono)">$128</span></td>
+                <td><span class="badge badge-green">Healthy</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ PODS TAB ═══ -->
+    <div id="pods" class="tab-content">
+
+      <div class="filter-bar">
+        <div class="filter-group">
+          <label>Namespace</label>
+          <select id="podNamespaceFilter" onchange="filterPods()">
+            <option value="all">All Namespaces</option>
+            <option value="production">production</option>
+            <option value="payments">payments</option>
+            <option value="analytics">analytics</option>
+            <option value="monitoring">monitoring</option>
+          </select>
+        </div>
+        <div class="filter-group">
+          <label>Status</label>
+          <select id="podStatusFilter" onchange="filterPods()">
+            <option value="all">All Status</option>
+            <option value="running">Running</option>
+            <option value="idle">Idle</option>
+            <option value="pending">Pending</option>
+          </select>
+        </div>
+        <div style="margin-left:auto;color:var(--text-muted);font-size:13px;">
+          Showing <span id="podCount">6</span> pods
+        </div>
+      </div>
+
+      <div class="table-card">
+        <div class="table-header"><h3>Pod Resource Utilization</h3></div>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Pod Name</th>
+                <th>Namespace</th>
+                <th>CPU Req → Used</th>
+                <th>Mem Req → Used</th>
+                <th>Efficiency</th>
+                <th>Monthly Cost</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="podTableBody">
+              <!-- filled by JS -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ REPORTS TAB ═══ -->
+    <div id="reports" class="tab-content">
+
+      <div class="filter-bar">
+        <button class="btn btn-primary" onclick="generateReport('monthly')">📊 Monthly Report</button>
+        <button class="btn btn-primary" onclick="generateReport('quarterly')">📊 Quarterly Report</button>
+        <button class="btn btn-primary" onclick="generateReport('annual')">📊 Annual Report</button>
+        <button class="btn btn-secondary" onclick="scheduleReport()">⏰ Schedule Report</button>
+      </div>
+
+      <div class="section-title">Recent Reports</div>
+      <div id="reportsList">
+        <div class="report-card">
+          <div class="report-info">
+            <div class="report-name">Monthly Report — June 2024</div>
+            <div class="report-meta">Generated: 2024-06-01 · Period: Jun 1 – Jun 30</div>
+          </div>
+          <div class="report-stats">
+            <div class="report-stat"><div class="val">$18,650</div><div class="lbl">Total Cost</div></div>
+            <div class="report-stat"><div class="val" style="color:var(--danger)">$12,450</div><div class="lbl">Waste</div></div>
+          </div>
+          <button class="btn btn-secondary btn-sm" onclick="downloadReport('june-2024')">⬇ Download</button>
+        </div>
+        <div class="report-card">
+          <div class="report-info">
+            <div class="report-name">Monthly Report — May 2024</div>
+            <div class="report-meta">Generated: 2024-05-01 · Period: May 1 – May 31</div>
+          </div>
+          <div class="report-stats">
+            <div class="report-stat"><div class="val">$17,200</div><div class="lbl">Total Cost</div></div>
+            <div class="report-stat"><div class="val" style="color:var(--danger)">$11,500</div><div class="lbl">Waste</div></div>
+          </div>
+          <button class="btn btn-secondary btn-sm" onclick="downloadReport('may-2024')">⬇ Download</button>
+        </div>
+        <div class="report-card">
+          <div class="report-info">
+            <div class="report-name">Q1 2024 Report</div>
+            <div class="report-meta">Generated: 2024-04-01 · Period: Jan 1 – Mar 31</div>
+          </div>
+          <div class="report-stats">
+            <div class="report-stat"><div class="val">$51,400</div><div class="lbl">Total Cost</div></div>
+            <div class="report-stat"><div class="val" style="color:var(--danger)">$34,300</div><div class="lbl">Waste</div></div>
+          </div>
+          <button class="btn btn-secondary btn-sm" onclick="downloadReport('q1-2024')">⬇ Download</button>
+        </div>
+      </div>
+
+      <div class="charts-grid" style="margin-top:28px;">
+        <div class="chart-card">
+          <div class="chart-title">6-Month Cost Trend</div>
+          <div class="chart-wrapper"><canvas id="sixMonthTrendChart"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-title">6-Month Savings Potential</div>
+          <div class="chart-wrapper"><canvas id="savingsTrendChart"></canvas></div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- ═══ MODAL ═══ -->
+<div id="modal" class="modal-overlay" onclick="closeModalIfOutside(event)">
+  <div class="modal-box">
+    <div class="modal-title" id="modalTitle">Generating Report</div>
+    <div class="modal-body" id="modalBody">Processing data...</div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal()">Close</button>
+      <button class="btn btn-primary" id="modalActionBtn" style="display:none" onclick="modalAction()">Download</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ TOAST CONTAINER ═══ -->
+<div id="toast-container"></div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════
+// DATA STORE
+// ═══════════════════════════════════════════════════════════════════
+const APP = {
+  activeTab: 'overview',
+  charts: {},
+
+  costTrend: [
+    { month: 'Jan', cost: 16200, waste: 10800 },
+    { month: 'Feb', cost: 17100, waste: 11400 },
+    { month: 'Mar', cost: 16800, waste: 11200 },
+    { month: 'Apr', cost: 17900, waste: 12000 },
+    { month: 'May', cost: 17200, waste: 11500 },
+    { month: 'Jun', cost: 18650, waste: 12450 }
+  ],
+
+  analysisData: {
+    all: {
+      label: 'All Clusters · 30 Days',
+      cpuWaste: '5,240m', memWaste: '128 GB', idle: '234', overprov: '67%',
+      rows: [
+        { ns:'production', cost:'$8,450', cpu:'45 cores', mem:'256 GB', eff:38, waste:'$3,210', effClass:'badge-red' },
+        { ns:'payments',   cost:'$5,320', cpu:'28 cores', mem:'128 GB', eff:42, waste:'$2,235', effClass:'badge-orange' },
+        { ns:'analytics',  cost:'$3,120', cpu:'18 cores', mem:'96 GB',  eff:55, waste:'$1,404', effClass:'badge-blue' },
+        { ns:'monitoring', cost:'$1,760', cpu:'12 cores', mem:'64 GB',  eff:48, waste:'$843',   effClass:'badge-orange' },
+      ]
+    },
+    prod: {
+      label: 'Production · 30 Days',
+      cpuWaste: '3,100m', memWaste: '86 GB', idle: '142', overprov: '72%',
+      rows: [
+        { ns:'production', cost:'$8,450', cpu:'45 cores', mem:'256 GB', eff:28, waste:'$3,210', effClass:'badge-red' },
+      ]
+    },
+    staging: {
+      label: 'Staging · 30 Days',
+      cpuWaste: '1,400m', memWaste: '28 GB', idle: '56', overprov: '54%',
+      rows: [
+        { ns:'staging-app', cost:'$2,100', cpu:'12 cores', mem:'48 GB', eff:55, waste:'$910', effClass:'badge-blue' },
+        { ns:'staging-db',  cost:'$980',  cpu:'6 cores',  mem:'24 GB', eff:61, waste:'$380', effClass:'badge-green' },
+      ]
+    },
+    dev: {
+      label: 'Development · 30 Days',
+      cpuWaste: '740m', memWaste: '14 GB', idle: '36', overprov: '44%',
+      rows: [
+        { ns:'dev-services', cost:'$640', cpu:'8 cores', mem:'16 GB', eff:76, waste:'$140', effClass:'badge-green' },
+      ]
+    }
+  },
+
+  recommendations: [
+    { id:'prod-api',       title:'Rightsize production/api-server',        priority:'high',   type:'rightsizing',   savings:1240, annual:14880,
+      desc:'Average CPU utilization is only 28% of requested resources. Pod is consistently over-provisioned.',
+      current:'CPU: 4000m→8000m | Memory: 2GB→4GB', recommended:'CPU: 1200m→2000m | Memory: 512MB→1GB',
+      status:'pending' },
+    { id:'pay-legacy',     title:'Remove Idle payments/legacy-service',    priority:'high',   type:'idle',          savings:850,  annual:10200,
+      desc:'No traffic detected in 14 days. This service was replaced by a newer implementation; deployment was never removed.',
+      current:'CPU: 2000m | Memory: 1GB (idle 14 days)', recommended:'Remove deployment entirely',
+      status:'pending' },
+    { id:'analytics-batch',title:'Consolidate analytics/batch-jobs',       priority:'high',   type:'consolidation', savings:2100, annual:25200,
+      desc:'12 separate pods running below 10% CPU. Can be consolidated to 4 pods without performance impact.',
+      current:'12 pods, avg 7% utilization', recommended:'4 pods with proper resource allocation',
+      status:'pending' },
+    { id:'prod-hpa',       title:'Enable HPA for production/web-frontend', priority:'medium', type:'hpa',           savings:1560, annual:18720,
+      desc:'Pod runs at 35% average capacity with static 8 replicas. HPA can reduce count during off-peak.',
+      current:'Static 8 replicas, 35% avg load', recommended:'HPA min:3 max:8, CPU threshold 70%',
+      status:'pending' },
+    { id:'monitor-prom',   title:'Right-size monitoring/prometheus memory', priority:'medium', type:'rightsizing',   savings:480,  annual:5760,
+      desc:'Prometheus consistently uses only 15% of its allocated 8GB memory.',
+      current:'Memory: 8GB (actual usage 1.2GB)', recommended:'Memory: 2GB',
+      status:'pending' },
+    { id:'reserved-inst',  title:'Migrate stable workloads to Reserved Instances', priority:'low', type:'reserved', savings:2470, annual:29640,
+      desc:'70% of workloads are stable and predictable. 1-year reserved instances offer ~40% cost reduction.',
+      current:'All on-demand instances', recommended:'1-year reserved instances for stable workloads',
+      status:'pending' },
+  ],
+
+  pods: [
+    { name:'api-server-prod-1',    ns:'production', cpuReq:'4000m', cpuUsed:'1200m', memReq:'2GB',   memUsed:'480MB',  eff:30, effClass:'badge-red',    cost:'$245', status:'running' },
+    { name:'web-frontend-prod-2',  ns:'production', cpuReq:'2000m', cpuUsed:'680m',  memReq:'1GB',   memUsed:'320MB',  eff:34, effClass:'badge-orange', cost:'$120', status:'running' },
+    { name:'payment-processor-1',  ns:'payments',   cpuReq:'3000m', cpuUsed:'2400m', memReq:'1.5GB', memUsed:'1.2GB',  eff:80, effClass:'badge-green',  cost:'$185', status:'running' },
+    { name:'legacy-service-old',   ns:'payments',   cpuReq:'2000m', cpuUsed:'0m',    memReq:'1GB',   memUsed:'0MB',    eff:0,  effClass:'badge-red',    cost:'$95',  status:'idle'    },
+    { name:'analytics-batch-1',    ns:'analytics',  cpuReq:'2000m', cpuUsed:'150m',  memReq:'512MB', memUsed:'45MB',   eff:7,  effClass:'badge-red',    cost:'$75',  status:'running' },
+    { name:'prometheus-main',      ns:'monitoring', cpuReq:'1000m', cpuUsed:'800m',  memReq:'8GB',   memUsed:'1.2GB',  eff:15, effClass:'badge-red',    cost:'$280', status:'running' },
+    { name:'grafana-server',       ns:'monitoring', cpuReq:'500m',  cpuUsed:'320m',  memReq:'512MB', memUsed:'380MB',  eff:70, effClass:'badge-green',  cost:'$65',  status:'running' },
+    { name:'db-primary',           ns:'production', cpuReq:'4000m', cpuUsed:'3600m', memReq:'8GB',   memUsed:'7.2GB',  eff:90, effClass:'badge-green',  cost:'$510', status:'running' },
+    { name:'analytics-worker-2',   ns:'analytics',  cpuReq:'1000m', cpuUsed:'80m',   memReq:'256MB', memUsed:'22MB',   eff:8,  effClass:'badge-red',    cost:'$40',  status:'running' },
+    { name:'notif-service-staging',ns:'payments',   cpuReq:'500m',  cpuUsed:'0m',    memReq:'256MB', memUsed:'0MB',    eff:0,  effClass:'badge-red',    cost:'$28',  status:'idle'    },
+  ]
+};
+
+// ═══════════════════════════════════════════════════════════════════
+// CHART HELPERS
+// ═══════════════════════════════════════════════════════════════════
+const CHART_DEFAULTS = {
+  color: {
+    primary: '#00d4ff',
+    purple: '#7c3aed',
+    green: '#10b981',
+    red: '#ef4444',
+    orange: '#f59e0b',
+    namespaces: ['#00d4ff','#7c3aed','#10b981','#f59e0b','#a78bfa']
+  },
+  grid: { color: 'rgba(31,45,69,0.8)' },
+  tick: { color: '#64748b', font: { family: "'DM Sans', sans-serif", size: 11 } },
+  legend: { labels: { color: '#94a3b8', font: { family: "'DM Sans', sans-serif", size: 12 }, boxWidth: 12, padding: 16 } }
+};
+
+function mkChart(id, config) {
+  const el = document.getElementById(id);
+  if (!el) return null;
+  if (APP.charts[id]) { APP.charts[id].destroy(); }
+  APP.charts[id] = new Chart(el, config);
+  return APP.charts[id];
+}
+
+function dollarTick(val) { return '$' + val.toLocaleString(); }
+
+function baseScales(yLabel) {
+  return {
+    x: { grid: CHART_DEFAULTS.grid, ticks: CHART_DEFAULTS.tick },
+    y: {
+      beginAtZero: true,
+      grid: CHART_DEFAULTS.grid,
+      ticks: { ...CHART_DEFAULTS.tick, callback: yLabel || null }
+    }
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// INIT ALL CHARTS
+// ═══════════════════════════════════════════════════════════════════
+function initCharts() {
+  const td = APP.costTrend;
+
+  // ── Overview: Cost Trend
+  mkChart('costTrendChart', {
+    type: 'line',
+    data: {
+      labels: td.map(d => d.month),
+      datasets: [
+        { label:'Total Cost', data: td.map(d=>d.cost),  borderColor:'#00d4ff', backgroundColor:'rgba(0,212,255,0.07)', tension:0.4, fill:true, pointRadius:4, pointHoverRadius:7, pointBackgroundColor:'#00d4ff' },
+        { label:'Waste',      data: td.map(d=>d.waste), borderColor:'#ef4444', backgroundColor:'rgba(239,68,68,0.07)',  tension:0.4, fill:true, pointRadius:4, pointHoverRadius:7, pointBackgroundColor:'#ef4444' }
+      ]
+    },
+    options: { responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{ ...CHART_DEFAULTS.legend, position:'top' } },
+      scales: baseScales(dollarTick)
+    }
+  });
+
+  // ── Overview: Utilization Doughnut
+  mkChart('utilizationChart', {
+    type: 'doughnut',
+    data: {
+      labels: ['Used', 'Wasted'],
+      datasets: [{ data:[35,65], backgroundColor:['#10b981','#ef4444'], borderColor:'transparent', borderWidth:0, hoverOffset:8 }]
+    },
+    options: { responsive:true, maintainAspectRatio:false, cutout:'70%',
+      plugins:{ legend:{ ...CHART_DEFAULTS.legend, position:'bottom' } }
+    }
+  });
+
+  // ── Overview: Cost Breakdown Pie
+  mkChart('costBreakdownChart', {
+    type: 'pie',
+    data: {
+      labels: ['CPU','Memory','Storage','Network'],
+      datasets: [{ data:[45,35,15,5], backgroundColor:['#00d4ff','#7c3aed','#10b981','#f59e0b'], borderColor:'transparent', borderWidth:0 }]
+    },
+    options: { responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{ ...CHART_DEFAULTS.legend, position:'bottom' } }
+    }
+  });
+
+  // ── Overview: Waste Distribution Bar
+  mkChart('wasteDistributionChart', {
+    type: 'bar',
+    data: {
+      labels: ['production','payments','analytics','monitoring'],
+      datasets: [{ label:'Monthly Waste ($)', data:[3210,2235,1404,843], backgroundColor:['rgba(239,68,68,0.8)','rgba(245,158,11,0.8)','rgba(0,212,255,0.8)','rgba(16,185,129,0.8)'], borderRadius:6 }]
+    },
+    options: { responsive:true, maintainAspectRatio:false, indexAxis:'y',
+      plugins:{ legend:{ display:false } },
+      scales: { x:{ ...baseScales(dollarTick).x, ticks:{ ...CHART_DEFAULTS.tick, callback:dollarTick } }, y:{ grid:{ display:false }, ticks:CHART_DEFAULTS.tick } }
+    }
+  });
+
+  // ── Analysis: Cost by Namespace
+  mkChart('costByNamespaceChart', {
+    type: 'bar',
+    data: {
+      labels: ['production','payments','analytics','monitoring'],
+      datasets: [{ label:'Monthly Cost ($)', data:[8450,5320,3120,1760], backgroundColor:CHART_DEFAULTS.color.namespaces, borderRadius:6 }]
+    },
+    options: { responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{ display:false } },
+      scales: baseScales(dollarTick)
+    }
+  });
+
+  // ── Analysis: CPU vs Memory Cost
+  mkChart('cpuVsMemoryChart', {
+    type: 'bar',
+    data: {
+      labels: ['production','payments','analytics','monitoring'],
+      datasets: [
+        { label:'CPU Cost ($)',    data:[4800,3100,1850,1050], backgroundColor:'rgba(0,212,255,0.8)',   borderRadius:4 },
+        { label:'Memory Cost ($)', data:[3650,2220,1270,710],  backgroundColor:'rgba(124,58,237,0.8)',  borderRadius:4 }
+      ]
+    },
+    options: { responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{ ...CHART_DEFAULTS.legend, position:'top' } },
+      scales: baseScales(dollarTick)
+    }
+  });
+
+  // ── Namespaces: Doughnut
+  mkChart('namespaceCostChart', {
+    type: 'doughnut',
+    data: {
+      labels: ['production','payments','analytics','monitoring','kube-system'],
+      datasets: [{ data:[8450,5320,3120,1760,640], backgroundColor:CHART_DEFAULTS.color.namespaces, borderColor:'transparent', borderWidth:0, hoverOffset:8 }]
+    },
+    options: { responsive:true, maintainAspectRatio:false, cutout:'65%',
+      plugins:{ legend:{ ...CHART_DEFAULTS.legend, position:'bottom' } }
+    }
+  });
+
+  // ── Namespaces: Requests vs Usage
+  mkChart('requestVsUsageChart', {
+    type: 'bar',
+    data: {
+      labels: ['production','payments','analytics','monitoring'],
+      datasets: [
+        { label:'CPU Requested (cores)', data:[64,40,32,16], backgroundColor:'rgba(124,58,237,0.8)', borderRadius:4 },
+        { label:'CPU Used (cores)',       data:[18,16,18, 8], backgroundColor:'rgba(16,185,129,0.8)', borderRadius:4 }
+      ]
+    },
+    options: { responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{ ...CHART_DEFAULTS.legend, position:'top' } },
+      scales: baseScales()
+    }
+  });
+
+  // ── Reports: 6-month cost trend
+  mkChart('sixMonthTrendChart', {
+    type: 'line',
+    data: {
+      labels: td.map(d=>d.month),
+      datasets: [{ label:'Total Cost ($)', data:td.map(d=>d.cost), borderColor:'#00d4ff', backgroundColor:'rgba(0,212,255,0.07)', tension:0.4, fill:true, pointRadius:5, pointBackgroundColor:'#00d4ff' }]
+    },
+    options: { responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{ display:false } },
+      scales: baseScales(dollarTick)
+    }
+  });
+
+  // ── Reports: Savings trend
+  mkChart('savingsTrendChart', {
+    type: 'line',
+    data: {
+      labels: td.map(d=>d.month),
+      datasets: [{ label:'Savings Potential ($)', data:td.map(d=>d.waste), borderColor:'#10b981', backgroundColor:'rgba(16,185,129,0.07)', tension:0.4, fill:true, pointRadius:5, pointBackgroundColor:'#10b981' }]
+    },
+    options: { responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{ display:false } },
+      scales: baseScales(dollarTick)
+    }
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// TAB SWITCHING — fixed: takes btn param, no `event` global
+// ═══════════════════════════════════════════════════════════════════
+const TAB_TITLES = {
+  overview:        ['Overview',         'FinOps intelligence across all clusters'],
+  analysis:        ['Cost Analysis',    'Detailed cost breakdown by cluster, namespace & resource type'],
+  recommendations: ['Recommendations',  'Actionable rightsizing and optimization suggestions'],
+  namespaces:      ['Namespaces',       'Resource allocation and utilization per namespace'],
+  pods:            ['Pod Details',      'Per-pod CPU, memory, and cost breakdown'],
+  reports:         ['Reports',          'Generate and schedule cost & savings reports']
+};
+
+function switchTab(tabName, btn) {
+  // Deactivate all tabs
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+
+  // Activate selected
+  document.getElementById(tabName).classList.add('active');
+  if (btn) btn.classList.add('active');
+
+  // Update topbar
+  const [title, sub] = TAB_TITLES[tabName] || [tabName, ''];
+  document.getElementById('topbar-title').textContent = title;
+  document.getElementById('topbar-sub').textContent = sub;
+
+  APP.activeTab = tabName;
+
+  // Resize any charts in the newly-visible tab (they may have rendered at 0 size)
+  requestAnimationFrame(() => {
+    Object.values(APP.charts).forEach(c => { try { c.resize(); } catch(e){} });
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// ANALYSIS FILTER — actually updates the UI
+// ═══════════════════════════════════════════════════════════════════
+function updateAnalysis() {
+  const cluster = document.getElementById('clusterFilter').value;
+  const period  = document.getElementById('timeFilter').value;
+  const data    = APP.analysisData[cluster] || APP.analysisData.all;
+  const pLabel  = { '7d':'7 Days', '30d':'30 Days', '90d':'90 Days' }[period] || period;
+
+  // Update label badge
+  const [clusterLabel] = (data.label || '').split('·');
+  document.getElementById('analysis-filter-label').textContent = `${clusterLabel.trim()} · ${pLabel}`;
+
+  // Update metric cards
+  document.getElementById('a-cpu-waste').textContent  = data.cpuWaste;
+  document.getElementById('a-mem-waste').textContent  = data.memWaste;
+  document.getElementById('a-idle').textContent        = data.idle;
+  document.getElementById('a-overprov').textContent    = data.overprov;
+
+  // Update table
+  const tbody = document.getElementById('analysisTableBody');
+  tbody.innerHTML = data.rows.map(r => `
+    <tr>
+      <td><strong>${r.ns}</strong></td>
+      <td><span style="color:var(--accent);font-family:var(--font-mono)">${r.cost}</span></td>
+      <td>${r.cpu}</td>
+      <td>${r.mem}</td>
+      <td><span class="badge ${r.effClass}">${r.eff}%</span></td>
+      <td style="color:var(--danger);font-family:var(--font-mono)">${r.waste}</td>
+    </tr>
+  `).join('');
+
+  toast('Analysis updated', 'info');
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// RECOMMENDATIONS — fully functional filter + apply/dismiss
+// ═══════════════════════════════════════════════════════════════════
+function renderRecommendations() {
+  const priority = document.getElementById('priorityFilter').value;
+  const type     = document.getElementById('typeFilter').value;
+
+  const filtered = APP.recommendations.filter(r => {
+    if (r.status === 'dismissed') return false;
+    if (priority !== 'all' && r.priority !== priority) return false;
+    if (type !== 'all' && r.type !== type) return false;
+    return true;
+  });
+
+  const container = document.getElementById('recContainer');
+  const emptyMsg  = document.getElementById('recEmpty');
+
+  if (filtered.length === 0) {
+    container.innerHTML = '';
+    emptyMsg.style.display = 'block';
+  } else {
+    emptyMsg.style.display = 'none';
+    container.innerHTML = filtered.map(r => `
+      <div class="rec-card ${r.priority} ${r.status}" id="rec-${r.id}">
+        <div class="rec-header">
+          <div class="rec-title">
+            ${r.priority === 'high' ? '🔴' : r.priority === 'medium' ? '🟡' : '🟢'}
+            ${r.title}
+          </div>
+          <span class="badge ${r.priority==='high'?'badge-red':r.priority==='medium'?'badge-orange':'badge-green'}">${r.priority.toUpperCase()}</span>
+        </div>
+        <div class="rec-body">
+          <p><strong>Current:</strong> ${r.current}</p>
+          <p><strong>Recommended:</strong> ${r.recommended}</p>
+          <p>${r.desc}</p>
+          <div class="rec-savings">💰 Monthly Savings: $${r.savings.toLocaleString()} &nbsp;|&nbsp; Annual: $${r.annual.toLocaleString()}</div>
+        </div>
+        ${r.status === 'applied' ? `<div style="color:var(--accent3);font-weight:600;font-size:13px;">✓ Applied</div>` : `
+        <div class="rec-actions">
+          <button class="btn btn-green btn-sm" onclick="applyRecommendation('${r.id}')">✓ Apply</button>
+          <button class="btn btn-secondary btn-sm" onclick="dismissRecommendation('${r.id}')">✕ Dismiss</button>
+        </div>`}
+      </div>
+    `).join('');
+  }
+
+  // Update counter badge
+  const pending = APP.recommendations.filter(r => r.status === 'pending').length;
+  document.getElementById('rec-count-badge').textContent = pending;
+  document.getElementById('m-recs').textContent = pending;
+}
+
+function filterRecommendations() { renderRecommendations(); }
+
+function applyRecommendation(id) {
+  const rec = APP.recommendations.find(r => r.id === id);
+  if (!rec || rec.status !== 'pending') return;
+  rec.status = 'applied';
+  updateSavingsMetrics();
+  renderRecommendations();
+  toast(`Applied: ${rec.title} · Save $${rec.savings.toLocaleString()}/mo`, 'success');
+}
+
+function dismissRecommendation(id) {
+  const rec = APP.recommendations.find(r => r.id === id);
+  if (!rec) return;
+  rec.status = 'dismissed';
+  renderRecommendations();
+  toast('Recommendation dismissed', 'info');
+}
+
+function applyAllRecommendations() {
+  const pending = APP.recommendations.filter(r => r.status === 'pending');
+  if (pending.length === 0) { toast('No pending recommendations', 'info'); return; }
+  const totalSavings = pending.reduce((s, r) => s + r.savings, 0);
+  pending.forEach(r => r.status = 'applied');
+  updateSavingsMetrics();
+  renderRecommendations();
+  toast(`Applied ${pending.length} recommendations · $${totalSavings.toLocaleString()}/mo saved`, 'success');
+}
+
+function updateSavingsMetrics() {
+  const remaining = APP.recommendations.filter(r => r.status === 'pending').reduce((s, r) => s + r.savings, 0);
+  document.getElementById('m-savings').textContent = '$' + remaining.toLocaleString();
+  document.getElementById('hero-savings').textContent = '$' + remaining.toLocaleString();
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// POD FILTER — actually filters the table
+// ═══════════════════════════════════════════════════════════════════
+function renderPods(pods) {
+  const tbody = document.getElementById('podTableBody');
+  tbody.innerHTML = pods.map(p => `
+    <tr>
+      <td><strong>${p.name}</strong></td>
+      <td>${p.ns}</td>
+      <td>${p.cpuReq} / ${p.cpuUsed}</td>
+      <td>${p.memReq} / ${p.memUsed}</td>
+      <td><span class="badge ${p.effClass}">${p.eff}%</span></td>
+      <td><span style="color:var(--accent);font-family:var(--font-mono)">${p.cost}</span></td>
+      <td>
+        <span class="status-dot status-${p.status}"></span>
+        ${p.status.charAt(0).toUpperCase()+p.status.slice(1)}
+      </td>
+    </tr>
+  `).join('');
+  document.getElementById('podCount').textContent = pods.length;
+}
+
+function filterPods() {
+  const ns     = document.getElementById('podNamespaceFilter').value;
+  const status = document.getElementById('podStatusFilter').value;
+  const filtered = APP.pods.filter(p => {
+    if (ns !== 'all' && p.ns !== ns) return false;
+    if (status !== 'all' && p.status !== status) return false;
+    return true;
+  });
+  renderPods(filtered);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// ANALYSIS TABLE INITIAL RENDER
+// ═══════════════════════════════════════════════════════════════════
+function renderAnalysisTable() {
+  const data = APP.analysisData.all;
+  const tbody = document.getElementById('analysisTableBody');
+  tbody.innerHTML = data.rows.map(r => `
+    <tr>
+      <td><strong>${r.ns}</strong></td>
+      <td><span style="color:var(--accent);font-family:var(--font-mono)">${r.cost}</span></td>
+      <td>${r.cpu}</td>
+      <td>${r.mem}</td>
+      <td><span class="badge ${r.effClass}">${r.eff}%</span></td>
+      <td style="color:var(--danger);font-family:var(--font-mono)">${r.waste}</td>
+    </tr>
+  `).join('');
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// REPORTS
+// ═══════════════════════════════════════════════════════════════════
+let currentReportType = '';
+
+function generateReport(type) {
+  currentReportType = type;
+  const labels = { monthly:'Monthly', quarterly:'Quarterly', annual:'Annual' };
+  document.getElementById('modalTitle').textContent = `Generating ${labels[type]} Report`;
+  document.getElementById('modalBody').innerHTML = '<p>Processing cluster data and cost analysis…</p><br><div class="progress-track" style="height:8px"><div class="progress-fill pf-blue" id="reportProgress" style="width:0%;transition:width 0.4s"></div></div>';
+  document.getElementById('modalActionBtn').style.display = 'none';
+  openModal();
+
+  let p = 0;
+  const iv = setInterval(() => {
+    p += Math.random() * 22;
+    if (p >= 100) { p = 100; clearInterval(iv); onReportReady(type); }
+    const el = document.getElementById('reportProgress');
+    if (el) el.style.width = p + '%';
+  }, 300);
+}
+
+function onReportReady(type) {
+  const names = { monthly:'Monthly Report — June 2024', quarterly:'Q2 2024 Report', annual:'Annual Report 2024' };
+  document.getElementById('modalBody').innerHTML = `
+    <p>✅ <strong>${names[type]}</strong> generated successfully!</p>
+    <br><p style="color:var(--text-muted);font-size:12px;">Includes: Cost Analysis · Namespace Breakdown · Recommendations · Savings Forecast</p>
+  `;
+  document.getElementById('modalActionBtn').style.display = 'inline-flex';
+}
+
+function modalAction() {
+  closeModal();
+  toast(`Report downloaded: ${currentReportType}`, 'success');
+}
+
+function downloadReport(id) {
+  toast(`Downloading report: ${id}`, 'info');
+}
+
+function scheduleReport() {
+  document.getElementById('modalTitle').textContent = 'Schedule Recurring Report';
+  document.getElementById('modalBody').innerHTML = `
+    <p>Configure automated report delivery:</p>
+    <br>
+    <div class="filter-group" style="margin-bottom:12px">
+      <label style="min-width:80px">Frequency</label>
+      <select style="flex:1"><option>Monthly</option><option>Weekly</option><option>Daily</option></select>
+    </div>
+    <div class="filter-group">
+      <label style="min-width:80px">Email</label>
+      <input type="text" placeholder="team@company.com" style="flex:1">
+    </div>
+  `;
+  document.getElementById('modalActionBtn').textContent = 'Save Schedule';
+  document.getElementById('modalActionBtn').style.display = 'inline-flex';
+  document.getElementById('modalActionBtn').onclick = () => { closeModal(); toast('Report scheduled!', 'success'); };
+  openModal();
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// EXPORT
+// ═══════════════════════════════════════════════════════════════════
+function exportData() {
+  const tab = APP.activeTab;
+  toast(`Exporting ${tab} data as CSV…`, 'info');
+  setTimeout(() => toast('Export complete!', 'success'), 1200);
+}
+
+function exportAnalysis() { exportData(); }
+
+function refreshData() {
+  toast('Refreshing data from clusters…', 'info');
+  setTimeout(() => {
+    updateLastUpdate();
+    toast('Data refreshed successfully', 'success');
+  }, 1500);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// MODAL
+// ═══════════════════════════════════════════════════════════════════
+function openModal() {
+  document.getElementById('modal').classList.add('open');
+}
+
+function closeModal() {
+  document.getElementById('modal').classList.remove('open');
+}
+
+function closeModalIfOutside(e) {
+  if (e.target === document.getElementById('modal')) closeModal();
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// TOAST NOTIFICATIONS
+// ═══════════════════════════════════════════════════════════════════
+function toast(message, type = 'info') {
+  const container = document.getElementById('toast-container');
+  const el = document.createElement('div');
+  const icons = { success:'✅', error:'❌', info:'ℹ️' };
+  el.className = `toast toast-${type}`;
+  el.innerHTML = `<span>${icons[type]||'ℹ️'}</span><span>${message}</span>`;
+  container.appendChild(el);
+  setTimeout(() => el.remove(), 4200);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// LIVE CLOCK
+// ═══════════════════════════════════════════════════════════════════
+function updateLastUpdate() {
+  const now = new Date();
+  document.getElementById('lastUpdate').textContent = now.toLocaleTimeString();
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════════════════
+document.addEventListener('DOMContentLoaded', () => {
+  initCharts();
+  renderRecommendations();
+  renderAnalysisTable();
+  renderPods(APP.pods);
+  updateLastUpdate();
+  setInterval(updateLastUpdate, 30000);
+});
+</script>
+</body>
+</html>
