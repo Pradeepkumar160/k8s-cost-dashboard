@@ -1,4 +1,4 @@
-# 🚀 K8s Cost Optimization Dashboard.  
+# 🚀 K8s Cost Optimization Dashboard. 
 
 <div align="center">
 
